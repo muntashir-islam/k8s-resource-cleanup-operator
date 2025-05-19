@@ -1,0 +1,47 @@
+{{- if .Values.crd.create }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "cleanup-operator.fullname" . }}-crd-wait
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cleanup-operator.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": "pre-install,pre-upgrade"
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": "before-hook-creation,hook-succeeded"
+spec:
+  template:
+    metadata:
+      name: {{ include "cleanup-operator.fullname" . }}-crd-wait
+      labels:
+        {{- include "cleanup-operator.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "cleanup-operator.serviceAccountName" . }}
+      restartPolicy: Never
+      containers:
+      - name: crd-wait
+        image: bitnami/kubectl:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          echo "Waiting for the cleanups.resources.muntashir.com CRD to be established..."
+          until kubectl get crd cleanups.resources.muntashir.com -o jsonpath='{.status.conditions[?(@.type=="Established")].status}' | grep -q True; do
+            echo "Waiting for CRD to be fully established..."
+            sleep 2
+          done
+          echo "CRD is ready!"
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

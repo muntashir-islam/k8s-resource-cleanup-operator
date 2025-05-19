@@ -72,7 +72,7 @@ serviceAccount:
 
 # Custom Resource Definition configuration
 crd:
-  create: true
+  create: false  # Changed to false - we'll install the CRD separately
 
 # RBAC configuration
 rbac:
