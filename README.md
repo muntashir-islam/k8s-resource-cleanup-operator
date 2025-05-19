@@ -54,6 +54,7 @@ kubectl apply -f deployment.yaml
 The operator can be configured by overriding the default values in the Helm chart:
 
 ```bash
+kubectl apply -f cleanup-crd.yaml
 helm install cleanup-operator ./charts/cleanup-operator --set config.dryRun=true,config.cleanupInterval=7200
 ```
 
