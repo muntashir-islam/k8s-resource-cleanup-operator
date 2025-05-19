@@ -1,0 +1,92 @@
+{{- if .Values.rbac.create -}}
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ include "cleanup-operator.fullname" . }}
+  labels:
+    {{- include "cleanup-operator.labels" . | nindent 4 }}
+rules:
+# Read access to identify resource references
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "daemonsets", "replicasets", "statefulsets"]
+  verbs: ["get", "list", "watch"]
+# Full access to secrets and configmaps for cleanup
+- apiGroups: [""]
+  resources: ["secrets", "configmaps"]
+  verbs: ["get", "list", "delete", "watch"]
+# Read access to namespaces and service accounts
+- apiGroups: [""]
+  resources: ["namespaces", "serviceaccounts"]
+  verbs: ["get", "list", "watch"]
+# Permission for CustomResourceDefinitions (required by kopf)
+- apiGroups: ["apiextensions.k8s.io"]
+  resources: ["customresourcedefinitions"]
+  verbs: ["get", "list", "watch"]
+# Permission to watch/update our custom resources
+- apiGroups: ["resources.muntashir.com"]
+  resources: ["cleanups"]
+  verbs: ["get", "list", "watch", "update", "patch"]
+# Permission for Events (kopf creates these)
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create", "patch", "update"]
+# Permission for kopf's internal coordination
+- apiGroups: ["kopf.dev"]
+  resources: ["clusterkopfpeerings"]
+  verbs: ["get", "list", "watch", "update", "patch", "delete"]
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ include "cleanup-operator.fullname" . }}
+  labels:
+    {{- include "cleanup-operator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "cleanup-operator.fullname" . }}
+subjects:
+- kind: ServiceAccount
+  name: {{ include "cleanup-operator.serviceAccountName" . }}
+  namespace: {{ .Release.Namespace }}
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ include "cleanup-operator.fullname" . }}-namespace
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cleanup-operator.labels" . | nindent 4 }}
+rules:
+# Permission to patch/update the operator's own config and resources
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list", "watch", "patch", "update"]
+# Permission for kopf's internal coordination
+- apiGroups: ["kopf.dev"]
+  resources: ["kopfpeerings"]
+  verbs: ["get", "list", "watch", "update", "patch", "delete", "create"]
+# Permission to manage status on our custom resources
+- apiGroups: ["resources.muntashir.com"]
+  resources: ["cleanups", "cleanups/status"]
+  verbs: ["get", "list", "watch", "update", "patch", "create"]
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ include "cleanup-operator.fullname" . }}-namespace
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cleanup-operator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "cleanup-operator.fullname" . }}-namespace
+subjects:
+- kind: ServiceAccount
+  name: {{ include "cleanup-operator.serviceAccountName" . }}
+  namespace: {{ .Release.Namespace }}
+{{- end }}

@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "cleanup-operator.fullname" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cleanup-operator.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    namespaces:
+    {{- range .Values.config.namespaces }}
+      - {{ . }}
+    {{- end }}
+    cleanup_interval: {{ .Values.config.cleanupInterval }}
+    unused_threshold_hours: {{ .Values.config.unusedThresholdHours }}
+    dry_run: {{ .Values.config.dryRun }}
+    exclude_patterns:
+    {{- range .Values.config.excludePatterns }}
+      - {{ . | quote }}
+    {{- end }}
+    log_level: {{ .Values.config.logLevel }}

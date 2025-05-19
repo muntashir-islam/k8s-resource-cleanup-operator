@@ -1,0 +1,296 @@
+
+---
+# Namespace for the operator
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cleanup-system
+  labels:
+    app.kubernetes.io/name: cleanup-operator
+---
+# ServiceAccount for the cleanup operator
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cleanup-operator
+  namespace: cleanup-system
+  labels:
+    app.kubernetes.io/name: cleanup-operator
+    app.kubernetes.io/version: "1.0.0"
+
+---
+# ClusterRole with necessary permissions
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cleanup-operator
+  labels:
+    app.kubernetes.io/name: cleanup-operator
+    app.kubernetes.io/version: "1.0.0"
+rules:
+# Read access to identify resource references
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "daemonsets", "replicasets", "statefulsets"]
+  verbs: ["get", "list", "watch"]
+# Full access to secrets and configmaps for cleanup
+- apiGroups: [""]
+  resources: ["secrets", "configmaps"]
+  verbs: ["get", "list", "delete", "watch"]
+# Read access to namespaces and service accounts
+- apiGroups: [""]
+  resources: ["namespaces", "serviceaccounts"]
+  verbs: ["get", "list", "watch"]
+# Permission for CustomResourceDefinitions (required by kopf)
+- apiGroups: ["apiextensions.k8s.io"]
+  resources: ["customresourcedefinitions"]
+  verbs: ["get", "list", "watch"]
+# Permission to watch/update our custom resources
+- apiGroups: ["resources.muntashir.com"]
+  resources: ["cleanups"]
+  verbs: ["get", "list", "watch", "update", "patch"]
+# Permission for Events (kopf creates these)
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create", "patch", "update"]
+# Permission for kopf's internal coordination
+- apiGroups: ["kopf.dev"]
+  resources: ["clusterkopfpeerings"]
+  verbs: ["get", "list", "watch", "update", "patch", "delete"]
+
+---
+# ClusterRoleBinding to grant permissions
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cleanup-operator
+  labels:
+    app.kubernetes.io/name: cleanup-operator
+    app.kubernetes.io/version: "1.0.0"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cleanup-operator
+subjects:
+- kind: ServiceAccount
+  name: cleanup-operator
+  namespace: cleanup-system
+---
+# Role for namespace-specific operations
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: cleanup-system
+  name: cleanup-operator-namespace
+  labels:
+    app.kubernetes.io/name: cleanup-operator
+    app.kubernetes.io/version: "1.0.0"
+rules:
+# Permission to patch/update the operator's own config and resources
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list", "watch", "patch", "update"]
+# Permission for kopf's internal coordination
+- apiGroups: ["kopf.dev"]
+  resources: ["kopfpeerings"]
+  verbs: ["get", "list", "watch", "update", "patch", "delete", "create"]
+# Permission to manage status on our custom resources
+- apiGroups: ["resources.muntashir.com"]
+  resources: ["cleanups", "cleanups/status"]
+  verbs: ["get", "list", "watch", "update", "patch", "create"]
+
+---
+# RoleBinding for namespace-specific permissions
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cleanup-operator-namespace
+  namespace: cleanup-system
+  labels:
+    app.kubernetes.io/name: cleanup-operator
+    app.kubernetes.io/version: "1.0.0"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: cleanup-operator-namespace
+subjects:
+- kind: ServiceAccount
+  name: cleanup-operator
+  namespace: cleanup-system
+
+---
+# ConfigMap for operator configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cleanup-operator-config
+  namespace: cleanup-system
+  labels:
+    app.kubernetes.io/name: cleanup-operator
+data:
+  config.yaml: |
+    namespaces:
+      - default
+      - production
+      - staging
+      - development
+    cleanup_interval: 3600  # 1 hour in seconds
+    unused_threshold_hours: 2  # Only clean resources older than this
+    dry_run: true  # Set to true for testing, false for production
+    exclude_patterns:
+      - "kube-*"
+      - "default-token-*"
+    log_level: INFO
+
+---
+# Custom Resource Definition for Cleanup
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: cleanups.resources.muntashir.com
+spec:
+  group: resources.muntashir.com
+  versions:
+  - name: v1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              namespaces:
+                type: array
+                items:
+                  type: string
+              unused_threshold_hours:
+                type: integer
+              dry_run:
+                type: boolean
+          status:
+            type: object
+            x-kubernetes-preserve-unknown-fields: true
+    subresources:
+      status: {}
+    additionalPrinterColumns:
+    - name: Status
+      type: string
+      jsonPath: .status.state
+    - name: Age
+      type: date
+      jsonPath: .metadata.creationTimestamp
+  scope: Namespaced
+  names:
+    plural: cleanups
+    singular: cleanup
+    kind: Cleanup
+    shortNames:
+    - clnp
+
+---
+# Initial Cleanup Custom Resource
+apiVersion: resources.muntashir.com/v1
+kind: Cleanup
+metadata:
+  name: default-cleanup
+  namespace: cleanup-system
+spec:
+  namespaces:
+    - default
+    - production
+    - staging
+  unused_threshold_hours: 2
+  dry_run: true  # Start with dry run for safety
+
+---
+# Deployment for the cleanup operator
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cleanup-operator
+  namespace: cleanup-system
+  labels:
+    app.kubernetes.io/name: cleanup-operator
+    app.kubernetes.io/version: "1.0.0"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate  # Only one instance should run at a time
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cleanup-operator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cleanup-operator
+        app.kubernetes.io/version: "1.0.0"
+    spec:
+      serviceAccountName: cleanup-operator
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: "OnRootMismatch"
+      containers:
+      - name: cleanup-operator
+        image: muntashir/cleanup-operator:v4  # Replace with your actual image
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          capabilities:
+            drop:
+              - ALL
+        env:
+        - name: CONFIG_PATH
+          value: "/etc/config/config.yaml"
+        - name: CLEANUP_NAMESPACES
+          value: "default,production,staging"  # Fallback if config file not found
+        - name: CLEANUP_INTERVAL
+          value: "3600"
+        - name: DRY_RUN
+          value: "true"
+        - name: KOPF_STANDALONE
+          value: "true"
+        - name: KOPF_NAMESPACE
+          value: "cleanup-system"
+        volumeMounts:
+        - name: config-volume
+          mountPath: /etc/config
+          readOnly: true
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "500m"
+      volumes:
+      - name: config-volume
+        configMap:
+          name: cleanup-operator-config
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+
+---
+# PodDisruptionBudget to ensure availability during updates
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: cleanup-operator-pdb
+  namespace: cleanup-system
+  labels:
+    app.kubernetes.io/name: cleanup-operator
+spec:
+  minAvailable: 0  # Allow disruption since we only run 1 replica
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cleanup-operator
