@@ -35,7 +35,7 @@ git clone https://github.com/yourusername/cleanup-operator.git
 cd cleanup-operator
 
 # Install using Helm
-helm install cleanup-operator ./charts/cleanup-operator
+chmod +x install.sh
 ```
 
 ### Manual Installation
@@ -44,7 +44,7 @@ If you prefer to deploy without Helm:
 
 ```bash
 # Apply the manifests
-kubectl apply -f deploy/kustomization.yaml
+kubectl apply -f deployment.yaml
 ```
 
 ## Configuration
