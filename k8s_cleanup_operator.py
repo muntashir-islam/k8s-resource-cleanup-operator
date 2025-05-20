@@ -235,6 +235,10 @@ class ResourceCleanup:
         unused_resources = self.get_unused_resources(namespace)
         results = {'secrets_deleted': 0, 'configmaps_deleted': 0}
         
+        # Debug: log all detected unused resources
+        logger.info(f"Detected unused secrets in {namespace}: {unused_resources['secrets']}")
+        logger.info(f"Detected unused configmaps in {namespace}: {unused_resources['configmaps']}")
+        
         # Delete unused secrets
         for secret_name in unused_resources['secrets']:
             try:
@@ -290,8 +294,8 @@ async def startup_handler(settings: kopf.OperatorSettings, **kwargs):
     logger.info("Cleanup operator started successfully")
 
 
-# Create handler for our CRD
-@kopf.on.create('cleanups.resources.muntashir.com', 'v1')
+# FIXED: Change from 'cleanups.resources.muntashir.com' to 'resources.muntashir.com'
+@kopf.on.create('resources.muntashir.com', 'v1', 'cleanups')
 async def create_fn(spec, **kwargs):
     """Handle the creation of a Cleanup CR."""
     logger.info(f"Cleanup CR created with spec: {spec}")
@@ -299,8 +303,8 @@ async def create_fn(spec, **kwargs):
     return {"status": "Cleanup triggered manually"}
 
 
-# Timer that runs periodically
-@kopf.timer('cleanups.resources.muntashir.com', 'v1', interval=CONFIG['cleanup_interval'])
+# FIXED: Change from 'cleanups.resources.muntashir.com' to 'resources.muntashir.com'
+@kopf.timer('resources.muntashir.com', 'v1', 'cleanups', interval=CONFIG['cleanup_interval'])
 async def cleanup_timer(**kwargs):
     """Timer-based cleanup across all configured namespaces."""
     logger.info("Timer-triggered cleanup starting")
@@ -314,9 +318,12 @@ async def perform_cleanup():
         return
     
     logger.info("Starting scheduled cleanup cycle")
+    logger.info(f"Current config: {CONFIG}")  
+    logger.info(f"Processing namespaces: {CONFIG['namespaces']}")  # Log all namespaces
     total_results = {'secrets_deleted': 0, 'configmaps_deleted': 0}
     
     for namespace in CONFIG['namespaces']:
+        logger.info(f"*** Starting cleanup for namespace: {namespace} ***")
         try:
             results = cleanup_handler.cleanup_namespace(namespace)
             total_results['secrets_deleted'] += results['secrets_deleted']

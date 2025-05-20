@@ -1,4 +1,3 @@
-
 ---
 # Namespace for the operator
 apiVersion: v1
@@ -137,12 +136,12 @@ data:
       - staging
       - development
     cleanup_interval: 3600  # 1 hour in seconds
-    unused_threshold_hours: 2  # Only clean resources older than this
-    dry_run: true  # Set to true for testing, false for production
+    unused_threshold_hours: 0  # Only clean resources older than this - set to 0 for testing
+    dry_run: false  # Set to false for actual deletion
     exclude_patterns:
       - "kube-*"
       - "default-token-*"
-    log_level: INFO
+    log_level: DEBUG
 
 ---
 # Custom Resource Definition for Cleanup
@@ -151,7 +150,7 @@ kind: CustomResourceDefinition
 metadata:
   name: cleanups.resources.muntashir.com
 spec:
-  group: resources.muntashir.com
+  group: resources.muntashir.com  # CORRECT GROUP NAME
   versions:
   - name: v1
     served: true
@@ -203,8 +202,8 @@ spec:
     - default
     - production
     - staging
-  unused_threshold_hours: 2
-  dry_run: true  # Start with dry run for safety
+  unused_threshold_hours: 0  # Set to 0 for testing
+  dry_run: false  # Set to false for actual deletion
 
 ---
 # Deployment for the cleanup operator
@@ -238,7 +237,7 @@ spec:
         fsGroupChangePolicy: "OnRootMismatch"
       containers:
       - name: cleanup-operator
-        image: muntashir/cleanup-operator:v4  # Replace with your actual image
+        image: muntashir/cleanup-operator:v8  # Replace with your actual image
         imagePullPolicy: IfNotPresent
         securityContext:
           allowPrivilegeEscalation: false
@@ -255,9 +254,9 @@ spec:
         - name: CLEANUP_NAMESPACES
           value: "default,production,staging"  # Fallback if config file not found
         - name: CLEANUP_INTERVAL
-          value: "3600"
+          value: "100"
         - name: DRY_RUN
-          value: "true"
+          value: "false"  # Set to "false" to actually delete
         - name: KOPF_STANDALONE
           value: "true"
         - name: KOPF_NAMESPACE

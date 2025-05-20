@@ -1,6 +1,6 @@
-# Kubernetes Cleanup Operator
+# Kubernetes Stale Resource Cleanup Operator
 
-A Kubernetes operator that automatically identifies and removes unused ConfigMaps and Secrets to keep your clusters tidy and resource-efficient.
+A Kubernetes operator that automatically cleans up unused ConfigMaps and Secrets across your cluster to reduce clutter and improve resource management.
 
 ![Kubernetes](https://img.shields.io/badge/kubernetes-%23326ce5.svg?style=for-the-badge&logo=kubernetes&logoColor=white)
 ![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54)
@@ -8,7 +8,7 @@ A Kubernetes operator that automatically identifies and removes unused ConfigMap
 
 ## Overview
 
-The Kubernetes Cleanup Operator helps you maintain a clean Kubernetes environment by detecting and removing ConfigMaps and Secrets that are no longer referenced by any workloads. This reduces cluster clutter and helps manage resources more efficiently.
+The Stale Resource Cleanup Operator monitors your Kubernetes cluster for unused ConfigMaps and Secrets, and automatically removes them based on configurable rules. A resource is considered "unused" when it's not referenced by any workload (Pod, Deployment, StatefulSet, DaemonSet) and has existed for longer than a specified time threshold.
 
 ### Key Features
 
@@ -17,59 +17,54 @@ The Kubernetes Cleanup Operator helps you maintain a clean Kubernetes environmen
 - **Configurable**: Select namespaces, exclusion patterns, age thresholds and more
 - **Kubernetes-native**: Uses Custom Resources for configuration and status reporting
 - **Small footprint**: Minimal resource consumption (64Mi memory, 100m CPU requested)
-
+- **Configurable Rules:**: Set which namespaces to monitor, age thresholds, exclusion patterns, etc.
+- **Resource Reference Detection**: Intelligently detects resources referenced by
+  - Pod volumes
+  - Environment variables
+  - Projected volumes
+  - Image pull secrets
+  - Service accounts
 ## Installation
 
 ### Prerequisites
 
 - Kubernetes 1.19+
-- Helm 3.0+ (for Helm installation method)
 
-### Quick Start - Helm (Recommended)
+### Quick Start 
 
 Install the Cleanup Operator with Helm:
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/cleanup-operator.git
-cd cleanup-operator
-
-# Install using Helm
-chmod +x install.sh
-```
-
-### Manual Installation
-
-If you prefer to deploy without Helm:
-
-```bash
-# Apply the manifests
+git clone git@github.com:muntashir-islam/k8s-resource-cleanup-operator.git
+cd k8s-resource-cleanup-operator
 kubectl apply -f deployment.yaml
 ```
+### Configuration
 
-## Configuration
+The operator can be configured through a ConfigMap or by modifying the Custom Resource:
 
-### Helm Chart Values
-
-The operator can be configured by overriding the default values in the Helm chart:
-
-```bash
-kubectl apply -f cleanup-crd.yaml
-helm install cleanup-operator ./charts/cleanup-operator --set config.dryRun=true,config.cleanupInterval=7200
+### Using the ConfigMap
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cleanup-operator-config
+  namespace: cleanup-system
+data:
+  config.yaml: |
+    namespaces:
+      - default
+      - production
+      - staging
+    cleanup_interval: 3600  # Seconds between cleanup cycles
+    unused_threshold_hours: 24  # Only clean resources older than this
+    dry_run: true  # Set to false for actual deletion
+    exclude_patterns:
+      - "kube-*"
+      - "default-token-*"
+    log_level: INFO
 ```
-
-Key configuration parameters:
-
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `config.namespaces` | Namespaces to scan for cleanup | `["default", "production", "staging", "development"]` |
-| `config.cleanupInterval` | Interval in seconds between cleanup runs | `3600` |
-| `config.unusedThresholdHours` | Minimum age of resources to consider for cleanup | `2` |
-| `config.dryRun` | Enable dry-run mode (no actual deletions) | `true` |
-| `config.excludePatterns` | Patterns for resources to exclude from cleanup | `["kube-*", "default-token-*"]` |
-| `config.logLevel` | Logging level | `"INFO"` |
-
-See [values.yaml](./charts/cleanup-operator/values.yaml) for the complete list of parameters.
 
 ### Using Custom Resources
 
@@ -79,23 +74,40 @@ You can also configure the operator through the `Cleanup` Custom Resource:
 apiVersion: resources.muntashir.com/v1
 kind: Cleanup
 metadata:
-  name: prod-cleanup
+  name: default-cleanup
   namespace: cleanup-system
 spec:
   namespaces:
+    - default
     - production
-    - staging
-  unusedThresholdHours: 48
-  dryRun: false
+  unused_threshold_hours: 48
+  dry_run: false
 ```
+
+### Environment Variables
+The operator also supports configuration via environment variables:
+
+- CLEANUP_NAMESPACES: Comma-separated list of namespaces to monitor
+- CLEANUP_INTERVAL: Seconds between cleanup cycles
+- DRY_RUN: Set to "true" for testing without actual deletion
+
+
+### Usage
+
+### Monitoring the Operator
+View the operator logs:
 
 Apply the Custom Resource:
 
 ```bash
-kubectl apply -f cleanup-cr.yaml
+kubectl logs -n cleanup-system -l app.kubernetes.io/name=cleanup-operator
 ```
 
-## Usage
+## Manual Cleanup Trigger
+You can manually trigger a cleanup cycle by adding an annotation to the ConfigMap:
+```bash
+kubectl annotate configmap -n cleanup-system cleanup-operator-config cleanup.operator/trigger=now --overwrite
+```
 
 ### Checking Status
 
@@ -146,7 +158,13 @@ Monitor the operator logs to see what's happening:
 ```bash
 kubectl logs -f -l app.kubernetes.io/name=cleanup-operator -n cleanup-system
 ```
+## Debugging
+To troubleshoot the operator, you can temporarily:
 
+- Set `log_level: DEBUG` in the ConfigMap
+- Reduce `unused_threshold_hours` to 0 for testing
+- Use `dry_run: true` for safe testing
+  
 ## How It Works
 
 The Cleanup Operator:
@@ -156,7 +174,8 @@ The Cleanup Operator:
 3. **Applies Filters** - Excludes resources matching exclusion patterns and those younger than the configured threshold
 4. **Performs Cleanup** - Removes unused resources (or logs what would be removed in dry-run mode)
 
-Workload references are tracked through:
+## Resource Reference Detection
+
 - Volume mounts
 - Environment variables
 - Environment variable sources
